@@ -5,17 +5,23 @@ import attr, logging, re, time
 
 @attr.s(auto_attribs=True)
 class HvSession:
+    # class vars
     HV_LINK: ClassVar[str] = "https://hentaiverse.org"
     LOGIN_LINK: ClassVar[str] = "https://forums.e-hentai.org/index.php?act=Login&CODE=01"
     RATE_LIMIT: ClassVar[float] = 1 # seconds btwn requests
 
-    ign: str = None
-    did_login: bool = False
-    session = attr.ib(default=attr.Factory(Session))
+    # init args
+    user: str
+    pw: str
+    session: Session = attr.ib(default=attr.Factory(Session))
 
-    _last_sent: float = None
-    _seen_main: bool = False # visited the main hv page at least once
-    _seen_isk: bool = False
+    # instance vars
+    did_login: bool = attr.ib(default=False, init=False)
+    ign: str = attr.ib(default=None, init=False)
+
+    _last_sent: float = attr.ib(default=0, init=False)
+    _seen_main: bool = attr.ib(default=False, init=False) # visited the main hv page at least once
+    _seen_isk: bool = attr.ib(default=False, init=False)
 
     def login(self):
         invalid_string = "You have to log on to access this game."

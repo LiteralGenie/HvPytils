@@ -1,1 +1,1 @@
-from classes.hv_session import HvSession
+from .classes.hv_session import HvSession
