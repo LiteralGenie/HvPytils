@@ -2,6 +2,8 @@ from requests import Session
 from typing import ClassVar
 import attr, logging, re, time
 
+logger = logging.getLogger('HvSession')
+
 
 @attr.s(auto_attribs=True)
 class HvSession:
@@ -38,7 +40,7 @@ class HvSession:
         return self
 
     def _login(self):
-        logging.debug('Logging into HV...')
+        logger.debug('Logging into HV...')
 
         payload = dict(
             CookieDate=1,
@@ -50,28 +52,33 @@ class HvSession:
         )
 
         resp = self.session.post(self.LOGIN_LINK, data=payload)
-        resp.encoding = 'utf-8'
         assert "You are now logged in as:" in resp.text
 
         ign = re.search("You are now logged in as: (.*?)<br", resp.text)
         self.ign = ign.group(1)
-        logging.info(f'Logged in as {ign}')
+        logger.info(f'Logged in as {ign}')
 
         return self.session
 
-    def get(self, url: str, **kwargs):
+    def get(self, url: str, encoding='utf-8', **kwargs):
         self._prep_truck(url)
         self._delay_request()
 
-        logging.debug(f'Getting {url} -- {kwargs}')
-        return self.session.get(url, **kwargs)
+        logger.debug(f'Getting {url} -- {kwargs}')
+        resp = self.session.get(url, **kwargs)
+        if encoding: resp.encoding = encoding
 
-    def post(self, url: str, **kwargs):
+        return resp
+
+    def post(self, url: str, encoding='utf-8', **kwargs):
         self._prep_truck(url)
         self._delay_request()
 
-        logging.debug(f'Posting {url} -- {kwargs}')
-        return self.session.post(url, **kwargs)
+        logger.debug(f'Posting {url} -- {kwargs}')
+        resp = self.session.post(url, **kwargs)
+        if encoding: resp.encoding = encoding
+
+        return resp
 
     def _delay_request(self):
         elapsed = time.time() - self._last_sent
@@ -86,10 +93,10 @@ class HvSession:
     # visit hv page at least once after login to set cookies or something
     def _prep_truck(self, url: str):
         if '/isekai/' in url and not self._seen_isk:
-            logging.debug(f'Doing first isekai visit')
+            logger.debug(f'Doing first isekai visit')
             self._seen_isk = True
             self.get('https://hentaiverse.org/isekai/')
         elif not self._seen_main:
-            logging.debug(f'Doing first main visit')
+            logger.debug(f'Doing first main visit')
             self._seen_main = True
             self.get('https://hentaiverse.org/')
