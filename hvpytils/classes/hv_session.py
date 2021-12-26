@@ -1,5 +1,6 @@
-from requests import Session
+from requests import PreparedRequest, Request, Session
 from typing import ClassVar
+
 import attr, logging, re, time
 
 logger = logging.getLogger('HvSession')
@@ -12,12 +13,12 @@ class HvSession:
     LOGIN_LINK: ClassVar[str] = "https://forums.e-hentai.org/index.php?act=Login&CODE=01"
     RATE_LIMIT: ClassVar[float] = 1 # seconds btwn requests
 
-    # init args
+    # kwargs for __init__
     user: str
     pw: str
     session: Session = attr.ib(default=attr.Factory(Session))
 
-    # instance vars
+    # instance attrs
     did_login: bool = attr.ib(default=False, init=False)
     ign: str = attr.ib(default=None, init=False)
 
@@ -39,6 +40,36 @@ class HvSession:
 
         return self
 
+    def get(self, url: str, encoding='utf-8', **kwargs):
+        self._prep_truck(url)
+        self._delay_request()
+
+        logger.debug(f'Getting {url} -- {kwargs}')
+        req = self.prepare_request('get', url, **kwargs)
+        resp = self.send(req)
+        if encoding: resp.encoding = encoding
+
+        return resp
+
+    def post(self, url: str, encoding='utf-8', **kwargs):
+        self._prep_truck(url)
+        self._delay_request()
+
+        logger.debug(f'Posting {url} -- {kwargs}')
+        req = self.prepare_request('post', url, **kwargs)
+        resp = self.send(req)
+        if encoding: resp.encoding = encoding
+
+        return resp
+
+    def send(self, req: PreparedRequest):
+        return self.session.send(req)
+
+    def prepare_request(self, method: str, url: str, **kwargs):
+        req = Request(method, url, **kwargs)
+        req = self.session.prepare_request(req)
+        return req
+
     def _login(self):
         logger.debug('Logging into HV...')
 
@@ -59,26 +90,6 @@ class HvSession:
         logger.info(f'Logged in as {ign}')
 
         return self.session
-
-    def get(self, url: str, encoding='utf-8', **kwargs):
-        self._prep_truck(url)
-        self._delay_request()
-
-        logger.debug(f'Getting {url} -- {kwargs}')
-        resp = self.session.get(url, **kwargs)
-        if encoding: resp.encoding = encoding
-
-        return resp
-
-    def post(self, url: str, encoding='utf-8', **kwargs):
-        self._prep_truck(url)
-        self._delay_request()
-
-        logger.debug(f'Posting {url} -- {kwargs}')
-        resp = self.session.post(url, **kwargs)
-        if encoding: resp.encoding = encoding
-
-        return resp
 
     def _delay_request(self):
         elapsed = time.time() - self._last_sent
