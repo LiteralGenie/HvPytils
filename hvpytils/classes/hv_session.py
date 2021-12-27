@@ -1,23 +1,43 @@
-from requests import Session
+from requests import PreparedRequest, Request, Session
 from typing import ClassVar
+
 import attr, logging, re, time
 
 logger = logging.getLogger('HvSession')
 
 
 @attr.s(auto_attribs=True)
+class HvCookies:
+    ipb_member_id: str
+    ipb_pass_hash: str
+
+@attr.s(auto_attribs=True)
+class HvCredentials:
+    username: str
+    password: str
+
+@attr.s(auto_attribs=True)
 class HvSession:
+    """
+    One of the following must be supplied to the constructor:
+        -> cookies: HvCookies
+        -> credentials: HvCredentials
+            -> this may not work if captchas are enabled for your account / ip
+
+    HvSession.login() must also be called on the instance afterwards
+    """
+
     # class vars
     HV_LINK: ClassVar[str] = "https://hentaiverse.org"
     LOGIN_LINK: ClassVar[str] = "https://forums.e-hentai.org/index.php?act=Login&CODE=01"
     RATE_LIMIT: ClassVar[float] = 1 # seconds btwn requests
 
-    # init args
-    user: str
-    pw: str
+    # kwargs for __init__
+    cookies: HvCookies = None
+    credentials: HvCredentials = None
     session: Session = attr.ib(default=attr.Factory(Session))
 
-    # instance vars
+    # instance attrs
     did_login: bool = attr.ib(default=False, init=False)
     ign: str = attr.ib(default=None, init=False)
 
@@ -26,12 +46,8 @@ class HvSession:
     _seen_isk: bool = attr.ib(default=False, init=False)
 
     def login(self):
-        invalid_string = "You have to log on to access this game."
-
-        resp = self.session.get(self.HV_LINK)
-        if invalid_string in resp.text:
-            time.sleep(self.RATE_LIMIT)
-            self._login()
+        self._delay_request()
+        self._login()
 
         self.did_login = True
         self._seen_main = False
@@ -39,33 +55,13 @@ class HvSession:
 
         return self
 
-    def _login(self):
-        logger.debug('Logging into HV...')
-
-        payload = dict(
-            CookieDate=1,
-            b='d',
-            bt=6,
-            UserName=self.user,
-            PassWord=self.pw,
-            ipb_login_submit="Login!",
-        )
-
-        resp = self.session.post(self.LOGIN_LINK, data=payload)
-        assert "You are now logged in as:" in resp.text
-
-        ign = re.search("You are now logged in as: (.*?)<br", resp.text)
-        self.ign = ign.group(1)
-        logger.info(f'Logged in as {ign}')
-
-        return self.session
-
     def get(self, url: str, encoding='utf-8', **kwargs):
         self._prep_truck(url)
         self._delay_request()
 
         logger.debug(f'Getting {url} -- {kwargs}')
-        resp = self.session.get(url, **kwargs)
+        req = self.prepare_request('get', url, **kwargs)
+        resp = self.send(req)
         if encoding: resp.encoding = encoding
 
         return resp
@@ -75,10 +71,44 @@ class HvSession:
         self._delay_request()
 
         logger.debug(f'Posting {url} -- {kwargs}')
-        resp = self.session.post(url, **kwargs)
+        req = self.prepare_request('post', url, **kwargs)
+        resp = self.send(req)
         if encoding: resp.encoding = encoding
 
         return resp
+
+    def send(self, req: PreparedRequest):
+        return self.session.send(req)
+
+    def prepare_request(self, method: str, url: str, **kwargs):
+        req = Request(method, url, **kwargs)
+        req = self.session.prepare_request(req)
+        return req
+
+    def _login(self):
+        if self.credentials:
+            logger.debug('Logging into HV via credentials...')
+
+            payload = dict(
+                CookieDate=1,
+                b='d',
+                bt=6,
+                UserName=self.credentials.username,
+                PassWord=self.credentials.password,
+                ipb_login_submit="Login!",
+            )
+
+            resp = self.session.post(self.LOGIN_LINK, data=payload)
+            assert "You are now logged in as:" in resp.text
+
+            ign = re.search("You are now logged in as: (.*?)<br", resp.text)
+            self.ign = ign.group(1)
+            logger.info(f'Logged in as {ign}')
+        elif self.cookies:
+            logger.debug('Logging into HV via cookies...')
+
+            self.session.cookies.set('ipb_member_id', self.cookies.ipb_member_id, domain='.e-hentai.org')
+            self.session.cookies.set('ipb_pass_hash', self.cookies.ipb_pass_hash, domain='.e-hentai.org')
 
     def _delay_request(self):
         elapsed = time.time() - self._last_sent
