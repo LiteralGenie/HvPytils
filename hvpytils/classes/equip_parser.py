@@ -24,6 +24,7 @@ class EquipParser:
         
         # post procsesing
         eid = int(eid)
+        key = str(key)
 
         # return
         return eid, key

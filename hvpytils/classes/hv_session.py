@@ -40,8 +40,11 @@ class HvSession:
     ign: str = attr.ib(default=None, init=False)
 
     _last_sent: float = attr.ib(default=0, init=False)
+    _is_prepping: bool = attr.ib(default=False, init=False) # avoid recursion when calling _prep_truck
     _seen_main: bool = attr.ib(default=False, init=False) # visited the main hv page at least once
+    _seen_main_alt: bool = attr.ib(default=False, init=False)
     _seen_isk: bool = attr.ib(default=False, init=False)
+    _seen_isk_alt: bool = attr.ib(default=False, init=False)
 
     def __attrs_post_init__(self):
         assert any(x is not None for x in [self.cookies, self.credentials]), 'No credentials or cookies (recommended) was supplied to the HvSession constructor.'
@@ -53,36 +56,35 @@ class HvSession:
 
         self.did_login = True
         self._seen_main = False
+        self._seen_main_alt = False
         self._seen_isk = False
+        self._seen_isk_alt = False
 
         return self
 
     def get(self, url: str, encoding='utf-8', **kwargs):
-        self._prep_truck(url)
-        self._delay_request()
-
-        LOG.debug(f'Getting {url} -- {kwargs}')
-        req = self.prepare_request('get', url, **kwargs)
-        resp = self.send(req)
+        resp = self.send('get', url, **kwargs)
         if encoding: resp.encoding = encoding
 
         return resp
 
     def post(self, url: str, encoding='utf-8', **kwargs):
-        self._prep_truck(url)
-        self._delay_request()
-
-        LOG.debug(f'Posting {url} -- {kwargs}')
-        req = self.prepare_request('post', url, **kwargs)
-        resp = self.send(req)
+        resp = self.send('post', url, **kwargs)
         if encoding: resp.encoding = encoding
 
         return resp
 
-    def send(self, req: PreparedRequest):
-        return self.session.send(req)
+    def send(self, method: str, url: str, **kwargs):
+        req = self._prepare_request(method=method, url=url, **kwargs)
+        resp = self.session.send(req)
+        # LOG.debug(f'response {req.url} {resp.text}')
+        return resp
 
-    def prepare_request(self, method: str, url: str, **kwargs):
+    def _prepare_request(self, method: str, url: str, **kwargs):
+        self._prep_truck(url)
+        self._delay_request()
+        LOG.debug(f'{method} -- {url} -- {kwargs}')
+
         req = Request(method, url, **kwargs)
         req = self.session.prepare_request(req)
         return req
@@ -124,11 +126,29 @@ class HvSession:
 
     # visit hv page at least once after login to set cookies or something
     def _prep_truck(self, url: str):
-        if '/isekai/' in url and not self._seen_isk:
-            LOG.debug(f'Doing first isekai visit')
-            self._seen_isk = True
-            self.get('https://hentaiverse.org/isekai/')
-        elif not self._seen_main:
-            LOG.debug(f'Doing first main visit')
-            self._seen_main = True
-            self.get('https://hentaiverse.org/')
+        is_alt = 'http://alt' in url
+
+        if not self._is_prepping:
+            self._is_prepping = True
+
+            if '/isekai/' in url:
+                if is_alt and not self._seen_isk_alt:
+                        LOG.debug(f'Doing first alt.isekai visit')
+                        self._seen_isk_alt = True
+                        self.get('http://alt.hentaiverse.org/isekai/')
+                elif not is_alt and not self._seen_isk:
+                    LOG.debug(f'Doing first isekai visit')
+                    self._seen_isk = True
+                    self.get('https://hentaiverse.org/isekai/')
+                    
+            elif not self._seen_main:
+                if is_alt and not self._seen_main_alt:
+                    LOG.debug(f'Doing first main.alt visit')
+                    self._seen_main_alt = True
+                    self.get('http://alt.hentaiverse.org/')
+                elif not is_alt and not self._seen_main:
+                    LOG.debug(f'Doing first main visit')
+                    self._seen_main = True
+                    self.get('https://hentaiverse.org/')
+            
+            self._is_prepping = False
